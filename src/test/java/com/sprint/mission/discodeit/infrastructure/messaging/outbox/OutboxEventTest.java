@@ -161,5 +161,108 @@ class OutboxEventTest {
             // then
             assertThat(event.getPayload()).isEqualTo(payload);
         }
+
+        @Test
+        @DisplayName("생성 시 기본 상태는 PENDING")
+        void constructor_defaultStatus_isPending() {
+            // given
+            AggregateType aggregateType = AggregateType.USER;
+            UUID aggregateId = UUID.randomUUID();
+            String topic = "test.topic";
+            String payload = "{\"data\":\"test\"}";
+
+            // when
+            OutboxEvent event = new OutboxEvent(aggregateType, aggregateId, topic, payload);
+
+            // then
+            assertThat(event.getStatus()).isEqualTo(OutboxEventStatus.PENDING);
+            assertThat(event.getPublishedAt()).isNull();
+        }
+    }
+
+    @Nested
+    @DisplayName("markPublished")
+    class MarkPublished {
+
+        @Test
+        @DisplayName("발행 완료 시 상태가 PUBLISHED로 변경되고 publishedAt이 설정됨")
+        void markPublished_changesStatusAndSetsPublishedAt() {
+            // given
+            OutboxEvent event = new OutboxEvent(
+                AggregateType.USER,
+                UUID.randomUUID(),
+                "test.topic",
+                "{\"data\":\"test\"}"
+            );
+
+            // when
+            event.markPublished();
+
+            // then
+            assertThat(event.getStatus()).isEqualTo(OutboxEventStatus.PUBLISHED);
+            assertThat(event.getPublishedAt()).isNotNull();
+        }
+
+        @Test
+        @DisplayName("PENDING 상태에서 PUBLISHED로 변경 가능")
+        void markPublished_fromPending_succeeds() {
+            // given
+            OutboxEvent event = new OutboxEvent(
+                AggregateType.MESSAGE,
+                UUID.randomUUID(),
+                "discodeit.message.created",
+                "{\"messageId\":\"123\"}"
+            );
+            assertThat(event.getStatus()).isEqualTo(OutboxEventStatus.PENDING);
+
+            // when
+            event.markPublished();
+
+            // then
+            assertThat(event.getStatus()).isEqualTo(OutboxEventStatus.PUBLISHED);
+        }
+    }
+
+    @Nested
+    @DisplayName("markFailed")
+    class MarkFailed {
+
+        @Test
+        @DisplayName("발행 실패 시 상태가 FAILED로 변경됨")
+        void markFailed_changesStatusToFailed() {
+            // given
+            OutboxEvent event = new OutboxEvent(
+                AggregateType.USER,
+                UUID.randomUUID(),
+                "test.topic",
+                "{\"data\":\"test\"}"
+            );
+
+            // when
+            event.markFailed();
+
+            // then
+            assertThat(event.getStatus()).isEqualTo(OutboxEventStatus.FAILED);
+            assertThat(event.getPublishedAt()).isNull();
+        }
+
+        @Test
+        @DisplayName("PENDING 상태에서 FAILED로 변경 가능")
+        void markFailed_fromPending_succeeds() {
+            // given
+            OutboxEvent event = new OutboxEvent(
+                AggregateType.CHANNEL,
+                UUID.randomUUID(),
+                "discodeit.channel.deleted",
+                "{\"channelId\":\"456\"}"
+            );
+            assertThat(event.getStatus()).isEqualTo(OutboxEventStatus.PENDING);
+
+            // when
+            event.markFailed();
+
+            // then
+            assertThat(event.getStatus()).isEqualTo(OutboxEventStatus.FAILED);
+        }
     }
 }

@@ -114,13 +114,15 @@ CREATE TABLE IF NOT EXISTS outbox_events
 (
     id             uuid PRIMARY KEY,
     created_at     timestamp WITH TIME ZONE NOT NULL,
-    aggregate_type varchar(255)             NOT NULL,
+    aggregate_type varchar(50)              NOT NULL,
     aggregate_id   uuid                     NOT NULL,
     topic          varchar(255)             NOT NULL,
-    payload        jsonb                    NOT NULL
+    payload        jsonb                    NOT NULL,
+    status         varchar(20)              NOT NULL DEFAULT 'PENDING',
+    published_at   timestamp WITH TIME ZONE
 );
 
-CREATE INDEX IF NOT EXISTS idx_outbox_events_created_at ON outbox_events (created_at ASC);
+CREATE INDEX IF NOT EXISTS idx_outbox_events_status_created_at ON outbox_events (status, created_at ASC);
 
 CREATE TABLE IF NOT EXISTS shedlock
 (

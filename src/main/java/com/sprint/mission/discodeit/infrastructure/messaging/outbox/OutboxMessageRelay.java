@@ -8,6 +8,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.concurrent.TimeUnit;
@@ -29,22 +30,26 @@ public class OutboxMessageRelay {
         lockAtLeastFor = "PT0.5S",
         lockAtMostFor = "PT10S"
     )
+    @Transactional
     public void publishEvents() {
         Pageable pageable = PageRequest.of(0, BATCH_SIZE);
-        List<OutboxEvent> events = outboxEventRepository.findAllByOrderByCreatedAtAsc(pageable);
+        List<OutboxEvent> events = outboxEventRepository.findAllByStatusOrderByCreatedAtAsc(
+            OutboxEventStatus.PENDING, pageable);
 
         if (events.isEmpty()) {
             return;
         }
+
         for (OutboxEvent event : events) {
             try {
                 kafkaTemplate.send(event.getTopic(), event.getAggregateId().toString(), event.getPayload())
                     .get(3, TimeUnit.SECONDS);
 
-                outboxEventRepository.delete(event);
-                log.debug("Published and deleted: {}", event.getId());
+                event.markPublished();
+                log.debug("Published outbox event: [id={}, topic={}]", event.getId(), event.getTopic());
             } catch (Exception e) {
-                log.error("Error publishing event: {}", event, e);
+                event.markFailed();
+                log.error("Failed to publish outbox event: [id={}, topic={}]", event.getId(), event.getTopic(), e);
             }
         }
     }

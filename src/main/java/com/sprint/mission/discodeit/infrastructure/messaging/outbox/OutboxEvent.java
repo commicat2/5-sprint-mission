@@ -13,6 +13,7 @@ import lombok.NoArgsConstructor;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
+import java.time.Instant;
 import java.util.UUID;
 
 import static org.springframework.util.StringUtils.hasText;
@@ -33,9 +34,15 @@ public class OutboxEvent extends BaseEntity {
     @Column(nullable = false)
     private String topic;
 
-    @Column(nullable = false, columnDefinition = "jsonb")
+    @Column(nullable = false)
     @JdbcTypeCode(SqlTypes.JSON)
     private String payload;
+
+    @Column(nullable = false)
+    @Enumerated(EnumType.STRING)
+    private OutboxEventStatus status;
+
+    private Instant publishedAt;
 
     public OutboxEvent(
         AggregateType aggregateType,
@@ -60,5 +67,15 @@ public class OutboxEvent extends BaseEntity {
         this.aggregateId = aggregateId;
         this.topic = topic;
         this.payload = payload;
+        this.status = OutboxEventStatus.PENDING;
+    }
+
+    public void markPublished() {
+        this.status = OutboxEventStatus.PUBLISHED;
+        this.publishedAt = Instant.now();
+    }
+
+    public void markFailed() {
+        this.status = OutboxEventStatus.FAILED;
     }
 }

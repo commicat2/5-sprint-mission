@@ -53,7 +53,7 @@ class OutboxMessageRelayTest {
         void publishEvents_noEvents_doesNothing() {
             // given
             Pageable pageable = PageRequest.of(0, BATCH_SIZE);
-            given(outboxEventRepository.findAllByOrderByCreatedAtAsc(pageable))
+            given(outboxEventRepository.findAllByStatusOrderByCreatedAtAsc(OutboxEventStatus.PENDING, pageable))
                 .willReturn(Collections.emptyList());
 
             // when
@@ -61,12 +61,11 @@ class OutboxMessageRelayTest {
 
             // then
             then(kafkaTemplate).should(never()).send(any(), any(), any());
-            then(outboxEventRepository).should(never()).delete(any(OutboxEvent.class));
         }
 
         @Test
-        @DisplayName("단일 이벤트 발행 성공 시 Kafka로 전송하고 삭제")
-        void publishEvents_singleEvent_sendsToKafkaAndDeletes() {
+        @DisplayName("단일 이벤트 발행 성공 시 Kafka로 전송하고 PUBLISHED로 상태 변경")
+        void publishEvents_singleEvent_sendsToKafkaAndMarksPublished() {
             // given
             UUID aggregateId = UUID.randomUUID();
             UUID eventId = UUID.randomUUID();
@@ -76,7 +75,7 @@ class OutboxMessageRelayTest {
             OutboxEvent event = createOutboxEvent(eventId, AggregateType.USER, aggregateId, topic, payload);
 
             Pageable pageable = PageRequest.of(0, BATCH_SIZE);
-            given(outboxEventRepository.findAllByOrderByCreatedAtAsc(pageable))
+            given(outboxEventRepository.findAllByStatusOrderByCreatedAtAsc(OutboxEventStatus.PENDING, pageable))
                 .willReturn(List.of(event));
 
             CompletableFuture<SendResult<String, String>> future = CompletableFuture.completedFuture(null);
@@ -87,12 +86,13 @@ class OutboxMessageRelayTest {
 
             // then
             then(kafkaTemplate).should().send(topic, aggregateId.toString(), payload);
-            then(outboxEventRepository).should().delete(event);
+            assertThat(event.getStatus()).isEqualTo(OutboxEventStatus.PUBLISHED);
+            assertThat(event.getPublishedAt()).isNotNull();
         }
 
         @Test
-        @DisplayName("다수의 이벤트 발행 성공 시 모두 전송하고 개별 삭제")
-        void publishEvents_multipleEvents_sendsAllToKafkaAndDeletesEach() {
+        @DisplayName("다수의 이벤트 발행 성공 시 모두 전송하고 각각 PUBLISHED로 상태 변경")
+        void publishEvents_multipleEvents_sendsAllToKafkaAndMarksEachPublished() {
             // given
             OutboxEvent event1 = createOutboxEvent(
                 UUID.randomUUID(), AggregateType.USER, UUID.randomUUID(),
@@ -108,7 +108,7 @@ class OutboxMessageRelayTest {
             );
 
             Pageable pageable = PageRequest.of(0, BATCH_SIZE);
-            given(outboxEventRepository.findAllByOrderByCreatedAtAsc(pageable))
+            given(outboxEventRepository.findAllByStatusOrderByCreatedAtAsc(OutboxEventStatus.PENDING, pageable))
                 .willReturn(List.of(event1, event2, event3));
 
             CompletableFuture<SendResult<String, String>> future = CompletableFuture.completedFuture(null);
@@ -119,9 +119,9 @@ class OutboxMessageRelayTest {
 
             // then
             then(kafkaTemplate).should(times(3)).send(any(), any(), any());
-            then(outboxEventRepository).should().delete(event1);
-            then(outboxEventRepository).should().delete(event2);
-            then(outboxEventRepository).should().delete(event3);
+            assertThat(event1.getStatus()).isEqualTo(OutboxEventStatus.PUBLISHED);
+            assertThat(event2.getStatus()).isEqualTo(OutboxEventStatus.PUBLISHED);
+            assertThat(event3.getStatus()).isEqualTo(OutboxEventStatus.PUBLISHED);
         }
 
         @Test
@@ -137,7 +137,7 @@ class OutboxMessageRelayTest {
             );
 
             Pageable pageable = PageRequest.of(0, BATCH_SIZE);
-            given(outboxEventRepository.findAllByOrderByCreatedAtAsc(pageable))
+            given(outboxEventRepository.findAllByStatusOrderByCreatedAtAsc(OutboxEventStatus.PENDING, pageable))
                 .willReturn(List.of(event));
 
             CompletableFuture<SendResult<String, String>> future = CompletableFuture.completedFuture(null);
@@ -164,27 +164,30 @@ class OutboxMessageRelayTest {
         }
 
         @Test
-        @DisplayName("배치 사이즈만큼 이벤트 조회")
-        void publishEvents_queriesWithCorrectBatchSize() {
+        @DisplayName("배치 사이즈만큼 PENDING 상태 이벤트 조회")
+        void publishEvents_queriesWithCorrectBatchSizeAndStatus() {
             // given
-            given(outboxEventRepository.findAllByOrderByCreatedAtAsc(any(Pageable.class)))
+            given(outboxEventRepository.findAllByStatusOrderByCreatedAtAsc(
+                any(OutboxEventStatus.class), any(Pageable.class)))
                 .willReturn(Collections.emptyList());
 
             // when
             outboxMessageRelay.publishEvents();
 
             // then
+            ArgumentCaptor<OutboxEventStatus> statusCaptor = ArgumentCaptor.forClass(OutboxEventStatus.class);
             ArgumentCaptor<Pageable> pageableCaptor = ArgumentCaptor.forClass(Pageable.class);
-            then(outboxEventRepository).should().findAllByOrderByCreatedAtAsc(pageableCaptor.capture());
+            then(outboxEventRepository).should().findAllByStatusOrderByCreatedAtAsc(
+                statusCaptor.capture(), pageableCaptor.capture());
 
-            Pageable capturedPageable = pageableCaptor.getValue();
-            assertThat(capturedPageable.getPageNumber()).isZero();
-            assertThat(capturedPageable.getPageSize()).isEqualTo(BATCH_SIZE);
+            assertThat(statusCaptor.getValue()).isEqualTo(OutboxEventStatus.PENDING);
+            assertThat(pageableCaptor.getValue().getPageNumber()).isZero();
+            assertThat(pageableCaptor.getValue().getPageSize()).isEqualTo(BATCH_SIZE);
         }
 
         @Test
-        @DisplayName("Kafka 전송 실패 시 해당 이벤트는 삭제하지 않고 나머지 계속 처리")
-        void publishEvents_kafkaFailure_continuesProcessingAndDeletesOnlySuccessful() {
+        @DisplayName("Kafka 전송 실패 시 해당 이벤트는 FAILED로 상태 변경하고 나머지 계속 처리")
+        void publishEvents_kafkaFailure_marksFailedAndContinuesProcessing() {
             // given
             OutboxEvent event1 = createOutboxEvent(
                 UUID.randomUUID(), AggregateType.USER, UUID.randomUUID(),
@@ -200,7 +203,7 @@ class OutboxMessageRelayTest {
             );
 
             Pageable pageable = PageRequest.of(0, BATCH_SIZE);
-            given(outboxEventRepository.findAllByOrderByCreatedAtAsc(pageable))
+            given(outboxEventRepository.findAllByStatusOrderByCreatedAtAsc(OutboxEventStatus.PENDING, pageable))
                 .willReturn(List.of(event1, event2, event3));
 
             // event1: 실패, event2: 성공, event3: 성공
@@ -218,15 +221,14 @@ class OutboxMessageRelayTest {
 
             // then
             then(kafkaTemplate).should(times(3)).send(any(), any(), any());
-            // event1은 삭제되지 않고, event2, event3만 삭제
-            then(outboxEventRepository).should(never()).delete(event1);
-            then(outboxEventRepository).should().delete(event2);
-            then(outboxEventRepository).should().delete(event3);
+            assertThat(event1.getStatus()).isEqualTo(OutboxEventStatus.FAILED);
+            assertThat(event2.getStatus()).isEqualTo(OutboxEventStatus.PUBLISHED);
+            assertThat(event3.getStatus()).isEqualTo(OutboxEventStatus.PUBLISHED);
         }
 
         @Test
-        @DisplayName("Kafka 전송 타임아웃 시 해당 이벤트는 삭제하지 않음")
-        void publishEvents_kafkaTimeout_doesNotDeleteTimedOutEvent() {
+        @DisplayName("Kafka 전송 타임아웃 시 해당 이벤트는 FAILED로 상태 변경")
+        void publishEvents_kafkaTimeout_marksEventAsFailed() {
             // given
             OutboxEvent event1 = createOutboxEvent(
                 UUID.randomUUID(), AggregateType.USER, UUID.randomUUID(),
@@ -238,7 +240,7 @@ class OutboxMessageRelayTest {
             );
 
             Pageable pageable = PageRequest.of(0, BATCH_SIZE);
-            given(outboxEventRepository.findAllByOrderByCreatedAtAsc(pageable))
+            given(outboxEventRepository.findAllByStatusOrderByCreatedAtAsc(OutboxEventStatus.PENDING, pageable))
                 .willReturn(List.of(event1, event2));
 
             // event1: 타임아웃, event2: 성공
@@ -254,13 +256,13 @@ class OutboxMessageRelayTest {
             outboxMessageRelay.publishEvents();
 
             // then
-            then(outboxEventRepository).should(never()).delete(event1);
-            then(outboxEventRepository).should().delete(event2);
+            assertThat(event1.getStatus()).isEqualTo(OutboxEventStatus.FAILED);
+            assertThat(event2.getStatus()).isEqualTo(OutboxEventStatus.PUBLISHED);
         }
 
         @Test
-        @DisplayName("모든 이벤트 발행 실패 시 아무것도 삭제하지 않음")
-        void publishEvents_allFailed_deletesNothing() {
+        @DisplayName("모든 이벤트 발행 실패 시 모두 FAILED로 상태 변경")
+        void publishEvents_allFailed_marksAllAsFailed() {
             // given
             OutboxEvent event1 = createOutboxEvent(
                 UUID.randomUUID(), AggregateType.USER, UUID.randomUUID(),
@@ -268,7 +270,7 @@ class OutboxMessageRelayTest {
             );
 
             Pageable pageable = PageRequest.of(0, BATCH_SIZE);
-            given(outboxEventRepository.findAllByOrderByCreatedAtAsc(pageable))
+            given(outboxEventRepository.findAllByStatusOrderByCreatedAtAsc(OutboxEventStatus.PENDING, pageable))
                 .willReturn(List.of(event1));
 
             CompletableFuture<SendResult<String, String>> failedFuture = new CompletableFuture<>();
@@ -279,7 +281,7 @@ class OutboxMessageRelayTest {
             outboxMessageRelay.publishEvents();
 
             // then
-            then(outboxEventRepository).should(never()).delete(any(OutboxEvent.class));
+            assertThat(event1.getStatus()).isEqualTo(OutboxEventStatus.FAILED);
         }
     }
 
