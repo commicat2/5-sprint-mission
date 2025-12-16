@@ -42,7 +42,10 @@ public class AsyncConfig implements AsyncConfigurer {
         executor.setThreadNamePrefix(threadNamePrefix);
 
         executor.setWaitForTasksToCompleteOnShutdown(true);
-        executor.setTaskDecorator(new MdcTaskDecorator());
+        executor.setTaskDecorator(new CompositeTaskDecorator(
+            new MdcTaskDecorator(),
+            new SecurityContextTaskDecorator()
+        ));
         executor.setRejectedExecutionHandler(createRejectedExecutionHandler());
 
         executor.initialize();
