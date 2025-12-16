@@ -1,12 +1,16 @@
 package com.sprint.mission.discodeit.infrastructure.messaging.kafka;
 
 import com.sprint.mission.discodeit.auth.domain.event.RoleUpdatedEvent;
+import com.sprint.mission.discodeit.binarycontent.domain.event.BinaryContentStorageFailedEvent;
 import com.sprint.mission.discodeit.message.domain.Message;
 import com.sprint.mission.discodeit.message.domain.MessageRepository;
 import com.sprint.mission.discodeit.message.domain.event.MessageCreatedEvent;
 import com.sprint.mission.discodeit.notification.application.NotificationService;
 import com.sprint.mission.discodeit.readstatus.domain.ReadStatus;
 import com.sprint.mission.discodeit.readstatus.domain.ReadStatusRepository;
+import com.sprint.mission.discodeit.user.domain.Role;
+import com.sprint.mission.discodeit.user.domain.User;
+import com.sprint.mission.discodeit.user.domain.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.kafka.annotation.KafkaListener;
@@ -22,6 +26,7 @@ public class NotificationRequiredEventListener {
     private final NotificationService notificationService;
     private final MessageRepository messageRepository;
     private final ReadStatusRepository readStatusRepository;
+    private final UserRepository userRepository;
 
     @KafkaListener(topics = MessageCreatedEvent.TOPIC, groupId = "notification-group")
     public void onMessageCreated(MessageCreatedEvent event) {
@@ -51,5 +56,19 @@ public class NotificationRequiredEventListener {
         String content = "%s -> %s".formatted(event.oldRole(), event.newRole());
 
         notificationService.create(event.userId(), title, content);
+    }
+
+    @KafkaListener(topics = BinaryContentStorageFailedEvent.TOPIC, groupId = "notification-group")
+    public void onBinaryContentStorageFailed(BinaryContentStorageFailedEvent event) {
+        String title = "파일 업로드 실패";
+        String content = "Task: BinaryContentStorage%nRequestId: %s%nBinaryContentId: %s%nError: %s"
+            .formatted(
+                event.requestId() != null ? event.requestId() : "N/A",
+                event.binaryContentId(),
+                event.errorMessage()
+            );
+
+        List<User> admins = userRepository.findAllByRole(Role.ADMIN);
+        admins.forEach(admin -> notificationService.create(admin.getId(), title, content));
     }
 }

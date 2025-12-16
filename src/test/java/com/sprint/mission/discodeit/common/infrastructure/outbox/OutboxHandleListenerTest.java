@@ -5,6 +5,7 @@ import com.sprint.mission.discodeit.auth.domain.event.LoginEvent;
 import com.sprint.mission.discodeit.auth.domain.event.LogoutEvent;
 import com.sprint.mission.discodeit.auth.domain.event.RoleUpdatedEvent;
 import com.sprint.mission.discodeit.auth.domain.event.TokenRefreshEvent;
+import com.sprint.mission.discodeit.binarycontent.domain.event.BinaryContentStorageFailedEvent;
 import com.sprint.mission.discodeit.channel.domain.ChannelType;
 import com.sprint.mission.discodeit.channel.domain.event.ChannelDeletedEvent;
 import com.sprint.mission.discodeit.message.domain.event.MessageCreatedEvent;
@@ -237,6 +238,29 @@ class OutboxHandleListenerTest {
                 AggregateType.MESSAGE,
                 messageId,
                 MessageDeletedEvent.TOPIC,
+                event
+            );
+        }
+
+        @Test
+        @DisplayName("BinaryContentStorageFailedEvent 수신 시 OutboxEventWriter에 이벤트 저장")
+        void on_withBinaryContentStorageFailedEvent_writesToOutbox() {
+            // given
+            UUID binaryContentId = UUID.randomUUID();
+            BinaryContentStorageFailedEvent event = new BinaryContentStorageFailedEvent(
+                binaryContentId,
+                "Storage failed",
+                "request-123"
+            );
+
+            // when
+            listener.on(event);
+
+            // then
+            then(outboxEventWriter).should().write(
+                AggregateType.BINARY_CONTENT,
+                event.binaryContentId(),
+                BinaryContentStorageFailedEvent.TOPIC,
                 event
             );
         }

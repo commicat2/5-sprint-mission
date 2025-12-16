@@ -1,6 +1,7 @@
 package com.sprint.mission.discodeit.infrastructure.messaging.kafka;
 
 import com.sprint.mission.discodeit.auth.domain.event.RoleUpdatedEvent;
+import com.sprint.mission.discodeit.binarycontent.domain.event.BinaryContentStorageFailedEvent;
 import com.sprint.mission.discodeit.channel.domain.Channel;
 import com.sprint.mission.discodeit.channel.domain.ChannelType;
 import com.sprint.mission.discodeit.message.domain.Message;
@@ -11,6 +12,7 @@ import com.sprint.mission.discodeit.readstatus.domain.ReadStatus;
 import com.sprint.mission.discodeit.readstatus.domain.ReadStatusRepository;
 import com.sprint.mission.discodeit.user.domain.Role;
 import com.sprint.mission.discodeit.user.domain.User;
+import com.sprint.mission.discodeit.user.domain.UserRepository;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -42,6 +44,9 @@ class NotificationRequiredEventListenerTest {
 
     @Mock
     private ReadStatusRepository readStatusRepository;
+
+    @Mock
+    private UserRepository userRepository;
 
     @InjectMocks
     private NotificationRequiredEventListener listener;
@@ -265,6 +270,125 @@ class NotificationRequiredEventListenerTest {
                 userId,
                 "권한이 변경되었습니다.",
                 "ADMIN -> USER"
+            );
+        }
+    }
+
+    @Nested
+    @DisplayName("onBinaryContentStorageFailed")
+    class OnBinaryContentStorageFailed {
+
+        @Test
+        @DisplayName("파일 업로드 실패 이벤트 수신 시 관리자에게 알림 생성")
+        void onBinaryContentStorageFailed_notifiesAdmins() {
+            // given
+            UUID binaryContentId = UUID.randomUUID();
+            UUID adminId = UUID.randomUUID();
+            String requestId = "req-123";
+            String errorMessage = "S3 upload failed";
+
+            User admin = createUser(adminId, "admin", "admin@example.com");
+            BinaryContentStorageFailedEvent event = new BinaryContentStorageFailedEvent(
+                binaryContentId, errorMessage, requestId
+            );
+
+            given(userRepository.findAllByRole(Role.ADMIN)).willReturn(List.of(admin));
+
+            // when
+            listener.onBinaryContentStorageFailed(event);
+
+            // then
+            String expectedContent = "Task: BinaryContentStorage%nRequestId: %s%nBinaryContentId: %s%nError: %s"
+                .formatted(requestId, binaryContentId, errorMessage);
+
+            then(notificationService).should().create(
+                adminId,
+                "파일 업로드 실패",
+                expectedContent
+            );
+        }
+
+        @Test
+        @DisplayName("requestId가 null인 경우 N/A로 표시")
+        void onBinaryContentStorageFailed_nullRequestId_showsNA() {
+            // given
+            UUID binaryContentId = UUID.randomUUID();
+            UUID adminId = UUID.randomUUID();
+            String errorMessage = "Storage error";
+
+            User admin = createUser(adminId, "admin", "admin@example.com");
+            BinaryContentStorageFailedEvent event = new BinaryContentStorageFailedEvent(
+                binaryContentId, errorMessage, null
+            );
+
+            given(userRepository.findAllByRole(Role.ADMIN)).willReturn(List.of(admin));
+
+            // when
+            listener.onBinaryContentStorageFailed(event);
+
+            // then
+            String expectedContent = "Task: BinaryContentStorage%nRequestId: N/A%nBinaryContentId: %s%nError: %s"
+                .formatted(binaryContentId, errorMessage);
+
+            then(notificationService).should().create(
+                adminId,
+                "파일 업로드 실패",
+                expectedContent
+            );
+        }
+
+        @Test
+        @DisplayName("관리자가 여러 명인 경우 모든 관리자에게 알림 생성")
+        void onBinaryContentStorageFailed_multipleAdmins_notifiesAll() {
+            // given
+            UUID binaryContentId = UUID.randomUUID();
+            UUID adminId1 = UUID.randomUUID();
+            UUID adminId2 = UUID.randomUUID();
+            String errorMessage = "Storage error";
+
+            User admin1 = createUser(adminId1, "admin1", "admin1@example.com");
+            User admin2 = createUser(adminId2, "admin2", "admin2@example.com");
+            BinaryContentStorageFailedEvent event = new BinaryContentStorageFailedEvent(
+                binaryContentId, errorMessage, "req-456"
+            );
+
+            given(userRepository.findAllByRole(Role.ADMIN)).willReturn(List.of(admin1, admin2));
+
+            // when
+            listener.onBinaryContentStorageFailed(event);
+
+            // then
+            then(notificationService).should().create(
+                org.mockito.ArgumentMatchers.eq(adminId1),
+                org.mockito.ArgumentMatchers.eq("파일 업로드 실패"),
+                org.mockito.ArgumentMatchers.anyString()
+            );
+            then(notificationService).should().create(
+                org.mockito.ArgumentMatchers.eq(adminId2),
+                org.mockito.ArgumentMatchers.eq("파일 업로드 실패"),
+                org.mockito.ArgumentMatchers.anyString()
+            );
+        }
+
+        @Test
+        @DisplayName("관리자가 없는 경우 알림 생성하지 않음")
+        void onBinaryContentStorageFailed_noAdmins_doesNotCreateNotification() {
+            // given
+            UUID binaryContentId = UUID.randomUUID();
+            BinaryContentStorageFailedEvent event = new BinaryContentStorageFailedEvent(
+                binaryContentId, "error", "req-789"
+            );
+
+            given(userRepository.findAllByRole(Role.ADMIN)).willReturn(Collections.emptyList());
+
+            // when
+            listener.onBinaryContentStorageFailed(event);
+
+            // then
+            then(notificationService).should(never()).create(
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any()
             );
         }
     }
