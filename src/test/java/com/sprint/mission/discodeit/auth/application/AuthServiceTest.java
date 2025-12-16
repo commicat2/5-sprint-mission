@@ -302,7 +302,7 @@ class AuthServiceTest {
 
             TokenRefreshFailureEvent event = eventCaptor.getValue();
             assertThat(event.userId()).isNull();
-            assertThat(event.username()).isEqualTo("N/A");
+            assertThat(event.username()).isNull();
             assertThat(event.ipAddress()).isEqualTo(TEST_IP);
             assertThat(event.userAgent()).isEqualTo(TEST_USER_AGENT);
             assertThat(event.reason()).isEqualTo(MISSING_REFRESH_TOKEN.getMessage());
@@ -496,7 +496,7 @@ class AuthServiceTest {
 
             TokenRefreshFailureEvent event = eventCaptor.getValue();
             assertThat(event.userId()).isNull();
-            assertThat(event.username()).isEqualTo("N/A");
+            assertThat(event.username()).isNull();
             assertThat(event.reason()).isEqualTo(INVALID_TOKEN.getMessage());
         }
 

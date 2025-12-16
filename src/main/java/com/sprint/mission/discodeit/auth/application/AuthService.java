@@ -88,8 +88,8 @@ public class AuthService {
     }
 
     public JwtDto refreshToken(HttpServletRequest request) {
-        String ipAddress = "N/A";
-        String userAgent = "N/A";
+        String ipAddress = null;
+        String userAgent = null;
         String refreshToken = null;
 
         try {
@@ -175,7 +175,7 @@ public class AuthService {
         String userAgent
     ) {
         UUID userId = null;
-        String username = "N/A";
+        String username = null;
         if (hasText(refreshToken)) {
             try {
                 userId = jwtTokenProvider.getUserIdFromToken(refreshToken);
