@@ -1,0 +1,91 @@
+spring:
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: true
+        highlight_sql: true
+        jdbc:
+          time_zone: UTC
+    defer-datasource-initialization: true
+  sql:
+    init:
+      mode: never
+
+  cache:
+    type: redis
+
+  kafka:
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+    consumer:
+      group-id: integration-test-group
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      properties:
+        spring.json.trusted.packages: "*"
+
+  servlet:
+    multipart:
+      max-file-size: 50MB
+      max-request-size: 50MB
+
+  jackson:
+    time-zone: UTC
+    serialization:
+      write-dates-as-timestamps: false
+    default-property-inclusion: non_null
+
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
+
+discodeit:
+  admin:
+    enabled: false
+  api:
+    server-url: http://localhost:8080
+    version: test
+  async:
+    core-pool-size: 2
+    max-pool-size: 4
+    queue-capacity: 10
+    await-termination-seconds: 5
+  datasource-proxy:
+    enabled: false
+  jwt:
+    access-token:
+      secret: test-access-secret-key-must-be-at-least-256-bits-long-1234567890
+      expiration: 30m
+    refresh-token:
+      secret: test-refresh-secret-key-must-be-at-least-256-bits-long-1234567890
+      expiration: 7d
+    max-sessions: 3
+    registry-type: in-memory
+    refresh-token-cookie-name: DISCODEIT_REFRESH_TOKEN
+  rate-limit:
+    max-attempts: 5
+    window-duration: 10s
+    block-duration: 1m
+    registry-type: redis
+  storage:
+    orphan-grace: 1h
+    cleanup-interval: 3600000
+    retry:
+      max-attempts: 2
+      backoff-delay: 1000
+      backoff-multiplier: 3.0
+
+logging:
+  level:
+    root: INFO
+    org.hibernate.SQL: DEBUG
+    org.hibernate.orm.jdbc.bind: INFO
+    com.sprint.mission.discodeit: DEBUG

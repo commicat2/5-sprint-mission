@@ -1,0 +1,209 @@
+plugins {
+    id 'java'
+    id 'org.springframework.boot' version '3.4.5'
+    id 'io.spring.dependency-management' version '1.1.7'
+    id 'jacoco'
+    id 'checkstyle'
+    id 'com.github.ben-manes.versions' version '0.51.0'
+}
+
+group = 'com.sprint.mission'
+version = '2.2-M11'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(17)
+    }
+}
+
+repositories {
+    mavenCentral()
+}
+
+configurations {
+    testCompileOnly {
+        extendsFrom testAnnotationProcessor
+    }
+}
+
+ext {
+    postgresqlVersion = '42.7.7'
+    logbackVersion = '1.5.19'
+    commonsLang3Version = '3.18.0'
+    springdocVersion = '2.8.11'
+    datasourceProxyVersion = '1.10'
+    testcontainersVersion = '1.20.4'
+    awsSdkVersion = '2.31.7'
+    jwtVersion = '10.3'
+    shedlockVersion = '5.10.0'
+}
+
+dependencies {
+    // Spring Boot Starters
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+    implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+    implementation 'org.springframework.boot:spring-boot-starter-validation'
+    implementation 'org.springframework.boot:spring-boot-starter-actuator'
+    implementation 'org.springframework.boot:spring-boot-starter-security'
+    implementation 'org.springframework.boot:spring-boot-starter-cache'
+    implementation 'org.springframework.boot:spring-boot-starter-data-redis'
+
+    // Spring Retry
+    implementation 'org.springframework.retry:spring-retry'
+
+    // Messaging
+    implementation 'org.springframework.kafka:spring-kafka'
+
+    // Scheduling
+    implementation "net.javacrumbs.shedlock:shedlock-spring:${shedlockVersion}"
+    implementation "net.javacrumbs.shedlock:shedlock-provider-jdbc-template:${shedlockVersion}"
+
+    // API Documentation
+    implementation "org.springdoc:springdoc-openapi-starter-webmvc-ui:${springdocVersion}"
+
+    // Database
+    runtimeOnly "org.postgresql:postgresql:${postgresqlVersion}"
+    implementation "net.ttddyy:datasource-proxy:${datasourceProxyVersion}"
+
+    // AWS S3
+    implementation "software.amazon.awssdk:s3:${awsSdkVersion}"
+
+    // JWT
+    implementation "com.nimbusds:nimbus-jose-jwt:${jwtVersion}"
+
+    // Cache
+    implementation 'com.github.ben-manes.caffeine:caffeine'
+
+    // Lombok
+    compileOnly 'org.projectlombok:lombok'
+    annotationProcessor 'org.projectlombok:lombok'
+    testCompileOnly 'org.projectlombok:lombok'
+    testAnnotationProcessor 'org.projectlombok:lombok'
+
+    // Development Tools
+    developmentOnly 'org.springframework.boot:spring-boot-devtools'
+    compileOnly 'org.springframework.boot:spring-boot-configuration-processor'
+    annotationProcessor 'org.springframework.boot:spring-boot-configuration-processor'
+
+    // Testing
+    testRuntimeOnly 'com.h2database:h2'
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testImplementation 'org.springframework.boot:spring-boot-testcontainers'
+    testImplementation 'org.springframework.security:spring-security-test'
+    testImplementation 'org.springframework.kafka:spring-kafka-test'
+    testImplementation "org.testcontainers:testcontainers:${testcontainersVersion}"
+    testImplementation "org.testcontainers:junit-jupiter:${testcontainersVersion}"
+    testImplementation "org.testcontainers:postgresql:${testcontainersVersion}"
+    testImplementation "org.testcontainers:localstack:${testcontainersVersion}"
+    testImplementation "org.testcontainers:kafka:${testcontainersVersion}"
+}
+
+// Build Configuration
+tasks.named('jar') {
+    enabled = false
+}
+
+tasks.named('bootJar') {
+    archiveFileName = "${project.name}-${version}.jar"
+}
+
+// Test Configuration
+tasks.named('test') {
+    useJUnitPlatform()
+
+    // Parallel test execution
+    maxParallelForks = Runtime.runtime.availableProcessors().intdiv(2) ?: 1
+
+    testLogging {
+        events = ['passed', 'skipped', 'failed']
+        exceptionFormat = 'full'
+        showStandardStreams = false
+    }
+
+    finalizedBy jacocoTestReport
+}
+
+// JaCoCo Coverage Configuration
+jacoco {
+    toolVersion = '0.8.14'
+}
+
+def jacocoExclusions = [
+        '**/config/**',
+        '**/util/**',
+        '**/*Application.class'
+]
+
+tasks.named('jacocoTestReport') {
+    reports {
+        xml.required = true
+        html.required = true
+    }
+
+    classDirectories.setFrom(
+            files(classDirectories.files.collect {
+                fileTree(dir: it, exclude: jacocoExclusions)
+            })
+    )
+}
+
+tasks.named('jacocoTestCoverageVerification') {
+    dependsOn jacocoTestReport
+
+    violationRules {
+        rule {
+            element = 'CLASS'
+            limit {
+                counter = 'LINE'
+                value = 'COVEREDRATIO'
+                minimum = 0.60
+            }
+        }
+    }
+
+    classDirectories.setFrom(
+            files(classDirectories.files.collect {
+                fileTree(dir: it, exclude: jacocoExclusions)
+            })
+    )
+}
+
+tasks.named('check') {
+    dependsOn jacocoTestCoverageVerification
+}
+
+checkstyle {
+    toolVersion = '10.17.0'
+    configFile = file('config/checkstyle/checkstyle.xml')
+    configProperties = [
+            'suppressionFile': file('config/checkstyle/checkstyle-suppressions.xml')
+    ]
+    maxWarnings = 0
+    ignoreFailures = false
+}
+
+tasks.withType(Checkstyle).configureEach {
+    reports {
+        xml.required = true
+        html.required = true
+    }
+}
+
+// Dependency Updates Configuration
+tasks.named('dependencyUpdates').configure {
+    checkForGradleUpdate = true
+    outputFormatter = 'json'
+    outputDir = 'build/dependencyUpdates'
+    reportfileName = 'report'
+
+    rejectVersionIf { selection ->
+        def isNonStable = { String version ->
+            def stableKeyword = ['RELEASE', 'FINAL', 'GA'].any {
+                it.toLowerCase() in version.toLowerCase()
+            }
+            def regex = /^[0-9,.v-]+(-r)?$/
+            return !stableKeyword && !(version ==~ regex)
+        }
+        isNonStable(selection.candidate.version) && !isNonStable(selection.currentVersion)
+    }
+}
